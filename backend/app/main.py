@@ -6,12 +6,25 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.database import Base, engine
-
+import app.models
+from app.routes.quiz import router as quiz_router
+from app.routes.leaderboard import router as leaderboard_router
+from app.routes.challenges import router as challenges_router
+from app.routes.ai import router as ai_router
+from app.seed import seed_quiz_questions, seed_challenges
+from app.database import SessionLocal
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize registered database tables
     Base.metadata.create_all(bind=engine)
+
+    db = SessionLocal()
+
+    try:
+        seed_quiz_questions(db)
+        seed_challenges(db)
+    finally:
+        db.close()
 
     yield
 
@@ -25,6 +38,10 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+app.include_router(quiz_router)
+app.include_router(leaderboard_router)
+app.include_router(challenges_router)
+app.include_router(ai_router)
 
 
 @app.get("/", tags=["Root"])
