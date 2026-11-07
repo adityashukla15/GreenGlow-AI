@@ -1,8 +1,18 @@
+# Environment
 .env
 .venv/
 venv/
+
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+.pytest_cache/
+
+# Database
+*.db
+*.sqlite3
+
+# Frontend
 node_modules/
 dist/
 build/
