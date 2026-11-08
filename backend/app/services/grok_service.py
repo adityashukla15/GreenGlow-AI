@@ -1,5 +1,6 @@
 
 import os
+import re
 
 import httpx
 from dotenv import load_dotenv
@@ -18,6 +19,73 @@ GROQ_MODEL = os.getenv(
 
 class GroqServiceError(Exception):
     """Raised when the Groq API request fails."""
+
+
+UNSAFE_ADVICE_PATTERNS = (
+    re.compile(
+        r"\b(?:fabric|cloth|paper|dry leaves|flammable decorations?)\b"
+        r".{0,60}\b(?:near|next to|beside|around|over|on)\b.{0,40}"
+        r"\b(?:open flames?|candles?|diyas?|lamps?|fire)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:wrap|cover|line|decorate)\b.{0,50}"
+        r"\b(?:diyas?|candles?|lamps?|flames?)\b.{0,50}"
+        r"\b(?:fabric|cloth|paper|dry leaves|flammable)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:pour|dump|flush|rinse|dispose of)\b.{0,70}"
+        r"\b(?:chemicals?|paint|oil|solvents?|pesticides?|cleaners?|"
+        r"batter(?:y|ies)|bleach|ammonia|e-waste)\b.{0,60}"
+        r"\b(?:drain|sink|toilet|river|water|soil|garden|regular trash|"
+        r"household waste)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:mix|combine)\b.{0,40}\b(?:bleach|ammonia)\b"
+        r".{0,40}\b(?:bleach|ammonia)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:burn|incinerate)\b.{0,50}"
+        r"\b(?:plastic|trash|waste|leaves|packaging|batter(?:y|ies))\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:release|let go of)\b.{0,30}\bballoons?\b"
+        r"|\bcut down\b.{0,30}\btrees?\b"
+        r"|\bdump\b.{0,40}\b(?:oil|chemicals?|waste)\b.{0,40}\b"
+        r"(?:river|lake|ocean|waterway|soil)\b",
+        re.IGNORECASE,
+    ),
+)
+
+
+def validate_eco_response(answer: object) -> str:
+    if not isinstance(answer, str) or not answer.strip():
+        raise GroqServiceError("Groq returned an invalid response.")
+
+    for sentence in re.split(r"(?<=[.!?])\s+", answer):
+        for pattern in UNSAFE_ADVICE_PATTERNS:
+            match = pattern.search(sentence)
+            if match is None:
+                continue
+
+            preceding_text = sentence[max(0, match.start() - 48):match.start()]
+            if re.search(
+                r"\b(?:no|not|never|avoid|don't|do not)\b"
+                r"(?:\s+\w+){0,5}\s*$",
+                preceding_text,
+                re.I,
+            ):
+                continue
+
+            raise GroqServiceError(
+                "Groq returned advice that did not pass safety checks."
+            )
+
+    return answer.strip()
 
 
 async def generate_eco_response(message: str) -> str:
@@ -72,13 +140,7 @@ async def generate_eco_response(message: str) -> str:
         result = response.json()
 
         answer = result["choices"][0]["message"]["content"]
-
-        if not answer:
-            raise GroqServiceError(
-                "Groq returned an empty response."
-            )
-
-        return answer.strip()
+        return validate_eco_response(answer)
 
     except httpx.TimeoutException as exc:
         raise GroqServiceError(
@@ -101,7 +163,7 @@ async def generate_eco_response(message: str) -> str:
             "Unable to connect to Groq API."
         ) from exc
 
-    except (KeyError, IndexError, TypeError, ValueError) as exc:
+    except (KeyError, IndexError, TypeError, ValueError, AttributeError) as exc:
         raise GroqServiceError(
             "Invalid response received from Groq."
         ) from exc

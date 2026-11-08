@@ -19,7 +19,12 @@ def build_assistant_prompt(request: AssistantRequest) -> str:
         "Answer the user's question with practical, actionable suggestions. "
         "Prefer affordable and reusable options where relevant. "
         "Keep recommendations focused on eco-friendly Diwali and do not "
-        "invent environmental certifications, statistics, or claims.",
+        "invent environmental certifications, statistics, or claims. "
+        "Prioritize fire safety: never place fabric, paper, dry leaves, or "
+        "other flammable decorations near open flames; recommend LED lights "
+        "when a decoration could be exposed to heat or flame. Do not advise "
+        "mixing household chemicals, pouring chemicals into drains or the "
+        "environment, burning waste, or releasing balloons.",
     ]
 
     if request.preferences is not None:

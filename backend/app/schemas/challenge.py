@@ -27,3 +27,8 @@ class ChallengeCompleteResponse(BaseModel):
     challenge_title: str
     points_awarded: int
     total_score: int
+
+
+class ChallengeCompletionStatusResponse(BaseModel):
+    profile_exists: bool
+    completed_challenge_ids: list[int]

@@ -5,6 +5,8 @@ def test_assistant_returns_groq_response(client, monkeypatch):
     async def mock_generate_eco_response(message):
         assert "User question: Suggest eco-friendly Diwali decorations" in message
         assert "affordable" in message
+        assert "near open flames" in message
+        assert "pouring chemicals into drains" in message
         return "Try reusable fabric buntings and diya arrangements."
 
     monkeypatch.setattr(
