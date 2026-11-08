@@ -1,17 +1,19 @@
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Challenge, ChallengeCompletion, User
+from app.models import Challenge, ChallengeCompletion
 from app.schemas.challenge import (
     ChallengeResponse,
     ChallengeCompleteRequest,
     ChallengeCompleteResponse,
+    ChallengeCompletionStatusResponse,
 )
 from app.services.ai_content_service import generate_challenge_content
 from app.services.grok_service import GroqServiceError
+from app.services.user_service import find_user_by_email, normalize_email
 
 
 router = APIRouter(
@@ -108,6 +110,47 @@ def get_challenges(db: Session = Depends(get_db)):
     return challenges
 
 
+@router.get(
+    "/completions",
+    response_model=ChallengeCompletionStatusResponse,
+)
+def get_challenge_completions(
+    email: str = Query(min_length=5, max_length=255),
+    db: Session = Depends(get_db),
+) -> ChallengeCompletionStatusResponse:
+    normalized_email = normalize_email(email)
+    if "@" not in normalized_email or "." not in normalized_email.split("@")[-1]:
+        raise HTTPException(status_code=422, detail="Invalid email address")
+
+    try:
+        user = find_user_by_email(db, normalized_email)
+        if user is None:
+            return ChallengeCompletionStatusResponse(
+                profile_exists=False,
+                completed_challenge_ids=[],
+            )
+
+        completed_challenge_ids = [
+            challenge_id
+            for (challenge_id,) in (
+                db.query(ChallengeCompletion.challenge_id)
+                .filter(ChallengeCompletion.user_id == user.id)
+                .order_by(ChallengeCompletion.challenge_id)
+                .all()
+            )
+        ]
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Unable to load challenge completion status right now.",
+        ) from exc
+
+    return ChallengeCompletionStatusResponse(
+        profile_exists=True,
+        completed_challenge_ids=completed_challenge_ids,
+    )
+
+
 @router.post(
     "/{challenge_id}/complete",
     response_model=ChallengeCompleteResponse,
@@ -132,11 +175,7 @@ async def complete_challenge(
             detail="Challenge not found or inactive",
         )
 
-    user = (
-        db.query(User)
-        .filter(User.email == request.email)
-        .first()
-    )
+    user = find_user_by_email(db, normalize_email(request.email))
 
     if not user:
         raise HTTPException(

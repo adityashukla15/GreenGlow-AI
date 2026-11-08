@@ -118,6 +118,79 @@ def test_get_challenges_excludes_inactive_challenges(client):
     assert challenge_ids[0] not in returned_ids
 
 
+def test_get_challenge_completions_returns_completed_ids(client):
+    user_id, challenge_ids = create_user_and_challenges(client)
+    with db_session(client) as db:
+        db.add(
+            ChallengeCompletion(
+                user_id=user_id,
+                challenge_id=challenge_ids[1],
+                points_awarded=10,
+            )
+        )
+        db.commit()
+
+    response = client.get(
+        "/api/v1/challenges/completions",
+        params={"email": "TEST@example.com"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "profile_exists": True,
+        "completed_challenge_ids": [challenge_ids[1]],
+    }
+
+
+def test_get_challenge_completions_for_unknown_user_is_empty(client):
+    response = client.get(
+        "/api/v1/challenges/completions",
+        params={"email": "unknown@example.com"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "profile_exists": False,
+        "completed_challenge_ids": [],
+    }
+
+
+def test_get_challenge_completions_rejects_ambiguous_legacy_emails(client):
+    with db_session(client) as db:
+        db.add_all(
+            [
+                User(
+                    username="mixed_user_one",
+                    email="mixed@example.com",
+                    score=0,
+                ),
+                User(
+                    username="mixed_user_two",
+                    email=" MIXED@example.com ",
+                    score=0,
+                ),
+            ]
+        )
+        db.commit()
+
+    response = client.get(
+        "/api/v1/challenges/completions",
+        params={"email": "mixed@example.com"},
+    )
+
+    assert response.status_code == 409
+    assert "Multiple user profiles" in response.json()["detail"]
+
+
+def test_get_challenge_completions_rejects_invalid_email(client):
+    response = client.get(
+        "/api/v1/challenges/completions",
+        params={"email": "invalid"},
+    )
+
+    assert response.status_code == 422
+
+
 # --------------------------------------------------
 # CHALLENGE COMPLETION
 # --------------------------------------------------
@@ -134,6 +207,46 @@ def test_complete_challenge_successfully(client):
     assert response.json()["message"] == "Challenge completed successfully"
     assert response.json()["points_awarded"] == 10
     assert response.json()["total_score"] == 10
+
+
+def test_complete_challenge_rejects_ambiguous_legacy_emails(client):
+    with db_session(client) as db:
+        db.add_all(
+            [
+                User(
+                    username="mixed_user_one",
+                    email="mixed@example.com",
+                    score=0,
+                ),
+                User(
+                    username="mixed_user_two",
+                    email=" MIXED@example.com ",
+                    score=0,
+                ),
+            ]
+        )
+        db.add(
+            Challenge(
+                title="Ambiguous profile challenge",
+                description="Complete this test challenge.",
+                points=10,
+                is_active=True,
+            )
+        )
+        db.commit()
+        challenge_id = (
+            db.query(Challenge.id)
+            .filter(Challenge.title == "Ambiguous profile challenge")
+            .scalar()
+        )
+
+    response = client.post(
+        f"/api/v1/challenges/{challenge_id}/complete",
+        json={"email": "mixed@example.com"},
+    )
+
+    assert response.status_code == 409
+    assert "Multiple user profiles" in response.json()["detail"]
 
 
 def test_complete_challenge_awards_correct_points(client):

@@ -325,6 +325,129 @@ def test_submit_quiz_session_successfully(client, monkeypatch):
         db.close()
         db_generator.close()
 
+
+def test_quiz_and_challenges_find_legacy_noncanonical_email(client, monkeypatch):
+    from app.database import get_db
+    from app.main import app
+    from app.models import Challenge, Quiz, QuizSession, User
+
+    async def mock_generate_quiz_content():
+        return make_questions()
+
+    monkeypatch.setattr(
+        "app.routes.quiz.generate_quiz_content",
+        mock_generate_quiz_content,
+    )
+
+    db_generator = app.dependency_overrides[get_db]()
+    db = next(db_generator)
+    try:
+        db.add(
+            User(
+                username="legacy_user",
+                email="  MIXED@example.com ",
+                score=5,
+            )
+        )
+        db.add_all(
+            [
+                Quiz(
+                    question=f"Existing eco question number {i}?",
+                    options=["Option A", "Option B", "Option C", "Option D"],
+                    correct_answer=0,
+                    explanation="Test explanation",
+                    category="Environment",
+                )
+                for i in range(10)
+            ]
+        )
+        challenges = [
+            Challenge(
+                title=f"Legacy email challenge {i}",
+                description=f"Complete challenge {i}.",
+                points=10,
+                is_active=True,
+            )
+            for i in range(4)
+        ]
+        db.add_all(challenges)
+        db.commit()
+        challenge_id = challenges[0].id
+    finally:
+        db.close()
+        db_generator.close()
+
+    start_response = client.post(
+        "/api/v1/quiz/session/start",
+        json={"email": " mixed@EXAMPLE.com "},
+    )
+    assert start_response.status_code == 200
+    session = start_response.json()
+
+    db_generator = app.dependency_overrides[get_db]()
+    db = next(db_generator)
+    try:
+        quiz_session = (
+            db.query(QuizSession)
+            .filter_by(token=session["session_token"])
+            .first()
+        )
+        quiz_session.email = " MIXED@Example.com "
+        db.commit()
+    finally:
+        db.close()
+        db_generator.close()
+
+    submit_response = client.post(
+        "/api/v1/quiz/session/submit",
+        json={
+            "session_token": session["session_token"],
+            "username": "legacy_user",
+            "email": "MIXED@example.com",
+            "answers": [
+                {"question_id": question["id"], "selected_option": 0}
+                for question in session["questions"]
+            ],
+        },
+    )
+    assert submit_response.status_code == 200
+
+    completion_response = client.get(
+        "/api/v1/challenges/completions",
+        params={"email": " mixed@EXAMPLE.com "},
+    )
+    assert completion_response.status_code == 200
+    assert completion_response.json()["profile_exists"] is True
+    assert completion_response.json()["completed_challenge_ids"] == []
+
+    challenge_response = client.post(
+        f"/api/v1/challenges/{challenge_id}/complete",
+        json={"email": "MIXED@example.com"},
+    )
+    assert challenge_response.status_code == 200
+    assert challenge_response.json()["total_score"] == 115
+
+    duplicate_challenge_response = client.post(
+        f"/api/v1/challenges/{challenge_id}/complete",
+        json={"email": " mixed@example.com "},
+    )
+    assert duplicate_challenge_response.status_code == 409
+
+    db_generator = app.dependency_overrides[get_db]()
+    db = next(db_generator)
+    try:
+        matching_users = [
+            user
+            for user in db.query(User).all()
+            if user.email.strip().lower() == "mixed@example.com"
+        ]
+        assert len(matching_users) == 1
+        assert matching_users[0].score == 115
+    finally:
+        db.close()
+        db_generator.close()
+
+
 def test_submit_quiz_session_rejects_wrong_email(client, monkeypatch):
     async def mock_generate_quiz_content():
         return make_questions()

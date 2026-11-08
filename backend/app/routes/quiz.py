@@ -16,6 +16,7 @@ from app.schemas.quiz import (
 )
 from app.services.ai_content_service import generate_quiz_content
 from app.services.grok_service import GroqServiceError
+from app.services.user_service import find_user_by_email, normalize_email
 
 import random
 
@@ -45,12 +46,8 @@ async def start_quiz_session(
     request: QuizSessionStartRequest,
     db: Session = Depends(get_db)
 ):
-    # Find existing user
-    user = (
-        db.query(User)
-        .filter(User.email == request.email)
-        .first()
-    )
+    email = normalize_email(request.email)
+    user = find_user_by_email(db, email)
 
     # Retrieve question IDs from previously completed sessions
     attempted_question_ids = set()
@@ -141,7 +138,7 @@ async def start_quiz_session(
 
     # Create a new quiz session with email binding
     session = QuizSession(
-        email=request.email,
+        email=email,
         question_ids=[
             question.id
             for question in selected_questions
@@ -194,7 +191,8 @@ def submit_quiz_session(
         )
 
     # Verify session ownership
-    if session.email is None or session.email != request.email:
+    email = normalize_email(request.email)
+    if session.email is None or normalize_email(session.email) != email:
         raise HTTPException(
             status_code=403,
             detail="This quiz session does not belong to this email"
@@ -277,11 +275,7 @@ def submit_quiz_session(
     score = correct_count * 10
 
     # Find or create user
-    user = (
-        db.query(User)
-        .filter(User.email == request.email)
-        .first()
-    )
+    user = find_user_by_email(db, email)
 
     if user:
         existing_username = (
@@ -317,7 +311,7 @@ def submit_quiz_session(
 
         user = User(
             username=request.username,
-            email=request.email,
+            email=email,
             score=score
         )
 
@@ -360,6 +354,7 @@ def submit_quiz(
     request: QuizSubmitRequest,
     db: Session = Depends(get_db)
 ):
+    email = normalize_email(request.email)
     question_ids = [
         answer.question_id for answer in request.answers
     ]
@@ -413,11 +408,7 @@ def submit_quiz(
     incorrect_count = total_questions - correct_count
     score = correct_count * 10
 
-    user = (
-        db.query(User)
-        .filter(User.email == request.email)
-        .first()
-    )
+    user = find_user_by_email(db, email)
 
     if user:
         existing_attempt = (
@@ -465,7 +456,7 @@ def submit_quiz(
 
         user = User(
             username=request.username,
-            email=request.email,
+            email=email,
             score=score
         )
 
