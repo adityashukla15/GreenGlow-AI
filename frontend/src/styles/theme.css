@@ -1,0 +1,20 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+
+  --color-background: #160d0b;
+  --color-card: #241512;
+  --color-elevated: #321c17;
+  --color-ember: #b94c32;
+  --color-maroon: #6f2527;
+  --color-gold: #f5be70;
+  --color-cream: #fff0d8;
+  --color-muted: #bda394;
+  --color-green: #82b98b;
+  --color-border: rgb(255 240 216 / 10%);
+  --color-glass: rgb(36 21 18 / 76%);
+  --shadow-glow: 0 0 56px rgb(185 76 50 / 20%);
+}
